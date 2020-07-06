@@ -16,37 +16,23 @@
 
 package org.springframework.cloud.sleuth.instrument.reactor;
 
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
-import brave.Span;
-import brave.Tracer;
 import brave.Tracing;
 import brave.propagation.CurrentTraceContext;
 import brave.propagation.TraceContext;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.reactivestreams.Publisher;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
+import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
-import reactor.core.publisher.Signal;
-import reactor.core.publisher.SignalType;
 import reactor.util.context.Context;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.sleuth.internal.LazyBean;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ServerWebExchange;
 
 /**
  * Reactive Span pointcuts factories.
@@ -145,7 +131,8 @@ public abstract class ReactorSleuth {
 			// Scannable.from(this.subscriber).scan(Attr.RUN_STYLE)
 			// if (SYNC) - do the instrumentation but I DON'T WANT TO CREATE A NEW OBJECT
 
-			Scannable.Attr.RunStyle runStyle = Scannable.from(sub).scan(Scannable.Attr.RUN_STYLE);
+			// Scannable.Attr.RunStyle runStyle =
+			// Scannable.from(sub).scan(Scannable.Attr.RUN_STYLE);
 			// 3 operators, A (sync), B, C
 
 			// 1 -> ThreadLocal TraceId 1 (A)
@@ -155,32 +142,75 @@ public abstract class ReactorSleuth {
 			// cleanup -> remove stuff from ThreadLocal after 3
 
 			// 4 operators A, B, C, D
-			// A Thread 1, B Thread 2 (Set UP) -> C (Clean UP Thread 2), D Thread 1 (Clean UP Thread 1)
+			// A Thread 1, B Thread 2 (Set UP) -> C (Clean UP Thread 2), D Thread 1 (Clean
+			// UP Thread 1)
 			//
 
-			Flux
-			.from()
-				.doOnDiscard()
-				.doOnEach()
-				.subscribe();
-			@Autowired Tracer tracer;
-			Span span = tracer.currentSpan();
-			
+			// Flux
+			// .from()
+			// .doOnDiscard()
+			// .doOnEach()
+			// .subscribe();
+			// @Autowired Tracer tracer;
+			// Span span = tracer.currentSpan();
+
 			// no sleuth - 2000 req / s
 			// app1 -contex-> app2 -contex-> app3
-			// 	log.info(...)
+			// log.info(...)
 			// sleuth - onLastOperator 900 req / s
 			// sleuth - onEach - 300 req / s
-			
-			
-			
-			
 
-			if (runStyle == Scannable.Attr.RunStyle.SYNC) {
-				return sub;
-			}
+			// if (runStyle == Scannable.Attr.RunStyle.SYNC) {
+			// return sub;
+			// }
 			return new ScopePassingSpanSubscriber<>(sub, context, currentTraceContext,
 					parent);
+		});
+	}
+
+	static <T> Function<? super Publisher<T>, ? extends Publisher<T>> springContextSpanOperator(
+			ConfigurableApplicationContext springContext) {
+		if (log.isTraceEnabled()) {
+			log.trace("Spring Context passing operator [" + springContext + "]");
+		}
+		return Operators.liftPublisher((p, sub) -> {
+			// We don't scope scalar results as they happen in an instant. This prevents
+			// excessive overhead when using Flux/Mono #just, #empty, #error, etc.
+			if (p instanceof Fuseable.ScalarCallable) {
+				return sub;
+			}
+			if (!springContext.isActive()) {
+				return sub;
+			}
+			final Context context = Context.of(ConfigurableApplicationContext.class,
+					springContext, CurrentTraceContext.class,
+					springContext.getBean(CurrentTraceContext.class));
+			return new CoreSubscriber<T>() {
+				@Override
+				public void onSubscribe(Subscription s) {
+					sub.onSubscribe(s);
+				}
+
+				@Override
+				public void onNext(T t) {
+					sub.onNext(t);
+				}
+
+				@Override
+				public void onError(Throwable t) {
+					sub.onError(t);
+				}
+
+				@Override
+				public void onComplete() {
+					sub.onComplete();
+				}
+
+				@Override
+				public Context currentContext() {
+					return context.putAll(sub.currentContext());
+				}
+			};
 		});
 	}
 
@@ -198,105 +228,4 @@ public abstract class ReactorSleuth {
 		return fallback.get();
 	}
 
-}
-
-
-
-@RestController
-class Foo {
-
-	private static final Logger log = LoggerFactory.getLogger(Foo.class);
-
-	@RequestMapping("/get")
-	Flux<String> get(ServerWebExchange exchange) {
-		String methodValue = exchange.getRequest().getMethodValue();
-		return
-				Flux.create(stringFluxSink -> stringFluxSink.currentContext())
-		// Flux.deferWithContext
-		doSth()
-				// Access to the context
-				.doOnEach(SleuthOperators.doWithThreadLocal(() -> log.info("alskdjsakdhsakjd")))
-				.flatMap(s -> {
-					Mono<Context> mono = Mono.subscriberContext();
-					return SleuthOperators.doWithThreadLocal(mono.map(context -> context), () -> ...));
-				})
-				.subscriberContext(Context.of("foo", "bar"));
-
-//		return Flux
-//		.just("alsjddsa")
-//		.map((c, s) -> {
-//		})
-//		.flatMap(o -> {
-//			Mono<Context> context = Mono.subscriberContext();
-//		})
-//		.doOnEach(s -> ReactorLogging.info(s.getContext(), "HELLO"));
-	}
-
-	Flux<String> doSth() {
-		return null;
-	}
-
-}
-
-
-
-// Whatever is Reactor native - will work out of the box
-// Whatever is non reactive native - requires an explicit call by the user
-
-
-
-
-
-
-
-
-// onLastOperator - benchmarking + ReactorLogging
-// Sleuth's code
-/*
-if (runStyle == Scannable.Attr.RunStyle.SYNC) {
-				return sub;
-			}
- */
-class SleuthOperators {
-	static Consumer<Signal> doWithThreadLocal(SignalType signalType, Runnable runnable) {
-		return signal -> {
-			if (signalType != signal.getType()) {
-				return;
-			}
-			doWithThreadLocal(runnable).accept(signal);
-		};
-	}
-
-	static Consumer<Signal> doWithThreadLocal(Runnable runnable) {
-		return signal -> {
-			Context context = signal.getContext();
-			// Assume that it's put there by SpanScopeSth
-			CurrentTraceContext traceContext = context.get(CurrentTraceContext.class);
-			try (CurrentTraceContext.Scope scope = traceContext.maybeScope(context.get(TraceContext.class))) {
-				MDC.put(context.get(""), context.get(""));
-				runnable.run();
-				MDC.clear();
-			}
-		};
-	}
-
-	static <T> Consumer<Signal<T>> doWithThreadLocalOnNext(Consumer<T> consumer) {
-		return signal -> {
-			if (!signal.isOnNext()) {
-				return;
-			}
-			// Reactor gave us TraceContext - 1
-			Context context = signal.getContext();
-			// Assume that it's put there by SpanScopeSth
-			CurrentTraceContext currentTraceContext = context.get(CurrentTraceContext.class);
-			// Trace Context 1
-			try (CurrentTraceContext.Scope scope = currentTraceContext.maybeScope(context.get(TraceContext.class))) {
-				// If there's 1 in Thread Local - Trace Context 1 / If there's nothing in ThreadLocal - Trace Context 2
-				MDC.put(context.get(""), context.get(""));
-				consumer.accept(signal.get());
-				MDC.clear();
-			}
-			// Trace Context 1
-		};
-	}
 }

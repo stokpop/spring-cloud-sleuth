@@ -120,6 +120,8 @@ final class TraceWebFilter implements WebFilter, Ordered {
 		}
 		Mono<Void> source = chain.filter(exchange);
 		boolean tracePresent = tracer().currentSpan() != null;
+		// if we're in manual instrumentation type mode then we control how threads are
+		// set
 		if (tracePresent) {
 			// clear any previous trace
 			tracer().withSpanInScope(null); // TODO: dangerous and also allocates stuff
