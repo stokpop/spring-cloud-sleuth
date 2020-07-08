@@ -24,6 +24,7 @@ import brave.propagation.TraceContext;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Fuseable;
@@ -182,35 +183,9 @@ public abstract class ReactorSleuth {
 			if (!springContext.isActive()) {
 				return sub;
 			}
-			final Context context = Context.of(ConfigurableApplicationContext.class,
-					springContext, CurrentTraceContext.class,
+			final Context context = sub.currentContext().put(CurrentTraceContext.class,
 					springContext.getBean(CurrentTraceContext.class));
-			return new CoreSubscriber<T>() {
-				@Override
-				public void onSubscribe(Subscription s) {
-					sub.onSubscribe(s);
-				}
-
-				@Override
-				public void onNext(T t) {
-					sub.onNext(t);
-				}
-
-				@Override
-				public void onError(Throwable t) {
-					sub.onError(t);
-				}
-
-				@Override
-				public void onComplete() {
-					sub.onComplete();
-				}
-
-				@Override
-				public Context currentContext() {
-					return context.putAll(sub.currentContext());
-				}
-			};
+			return new SleuthContextOperator<>(context, sub);
 		});
 	}
 
@@ -226,6 +201,57 @@ public abstract class ReactorSleuth {
 			return context.get(TraceContext.class);
 		}
 		return fallback.get();
+	}
+
+}
+
+class SleuthContextOperator<T> implements Subscription, CoreSubscriber<T> {
+
+	private final Context context;
+
+	private final Subscriber<? super T> subscriber;
+
+	private Subscription s;
+
+	SleuthContextOperator(Context context, Subscriber<? super T> subscriber) {
+		this.context = context;
+		this.subscriber = subscriber;
+	}
+
+	@Override
+	public void onSubscribe(Subscription subscription) {
+		this.s = subscription;
+		this.subscriber.onSubscribe(this);
+	}
+
+	@Override
+	public void request(long n) {
+		this.s.request(n);
+	}
+
+	@Override
+	public void cancel() {
+		this.s.cancel();
+	}
+
+	@Override
+	public void onNext(T o) {
+		this.subscriber.onNext(o);
+	}
+
+	@Override
+	public void onError(Throwable throwable) {
+		this.subscriber.onError(throwable);
+	}
+
+	@Override
+	public void onComplete() {
+		this.subscriber.onComplete();
+	}
+
+	@Override
+	public Context currentContext() {
+		return this.context;
 	}
 
 }

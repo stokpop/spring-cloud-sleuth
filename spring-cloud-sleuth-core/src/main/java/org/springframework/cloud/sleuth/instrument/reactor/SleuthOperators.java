@@ -16,6 +16,7 @@
 
 package org.springframework.cloud.sleuth.instrument.reactor;
 
+import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 
 import brave.propagation.CurrentTraceContext;
@@ -50,12 +51,29 @@ public final class SleuthOperators {
 	public static Consumer<Signal> doWithThreadLocal(Runnable runnable) {
 		return signal -> {
 			Context context = signal.getContext();
-			CurrentTraceContext traceContext = context.get(CurrentTraceContext.class);
-			try (CurrentTraceContext.Scope scope = traceContext
-					.maybeScope(context.get(TraceContext.class))) {
-				runnable.run();
-			}
+			doWithThreadLocal(context, runnable);
 		};
+	}
+
+	public static void doWithThreadLocal(Context context, Runnable runnable) {
+		CurrentTraceContext traceContext = context.get(CurrentTraceContext.class);
+		try (CurrentTraceContext.Scope scope = traceContext
+				.maybeScope(context.get(TraceContext.class))) {
+			runnable.run();
+		}
+	}
+
+	public static <T> T doWithThreadLocal(Context context, Callable<T> callable) {
+		CurrentTraceContext traceContext = context.get(CurrentTraceContext.class);
+		try (CurrentTraceContext.Scope scope = traceContext
+				.maybeScope(context.get(TraceContext.class))) {
+			try {
+				return callable.call();
+			}
+			catch (Exception e) {
+				throw new IllegalStateException(e);
+			}
+		}
 	}
 
 	public static <T> Consumer<Signal<T>> doWithThreadLocalOnNext(Consumer<T> consumer) {
