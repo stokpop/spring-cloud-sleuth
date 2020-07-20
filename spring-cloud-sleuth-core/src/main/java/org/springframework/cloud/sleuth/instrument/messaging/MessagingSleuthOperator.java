@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2019 the original author or authors.
+ * Copyright 2013-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -106,6 +106,19 @@ public final class MessagingSleuthOperator {
 	}
 
 	/**
+	 * Function converting an input message to a message with tracing headers.
+	 * @param tracing - tracing bean
+	 * @param inputMessage - input message to process
+	 * @param <T> input message type
+	 * @return function representation of input message with tracing context
+	 */
+	public static <T> Function<Message<T>, Message<T>> asFunction(Tracing tracing,
+			Message<T> inputMessage) {
+		return stringMessage -> MessagingSleuthOperator.forInputMessage(tracing,
+				inputMessage);
+	}
+
+	/**
 	 * Retrieves tracing information from message headers.
 	 * @param tracing - tracing bean
 	 * @param message - message to process
@@ -190,5 +203,5 @@ public final class MessagingSleuthOperator {
 		traceMessageHandler.afterMessageHandled(span, ex);
 		return message;
 	}
-}
 
+}
