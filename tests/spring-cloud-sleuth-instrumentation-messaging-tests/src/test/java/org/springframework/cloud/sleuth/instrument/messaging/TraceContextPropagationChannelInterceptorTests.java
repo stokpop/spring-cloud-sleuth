@@ -44,7 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * @author Spencer Gibb
  */
-@SpringBootTest(classes = TraceContextPropagationChannelInterceptorTests.App.class)
+@SpringBootTest(classes = TraceContextPropagationChannelInterceptorTests.App.class, properties = "spring.sleuth.integration.enabled=true")
 @DirtiesContext
 public class TraceContextPropagationChannelInterceptorTests {
 
