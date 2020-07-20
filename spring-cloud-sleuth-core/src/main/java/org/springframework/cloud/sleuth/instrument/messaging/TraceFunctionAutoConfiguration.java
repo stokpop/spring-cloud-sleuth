@@ -46,13 +46,12 @@ import org.springframework.messaging.support.MessageBuilder;
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(value = "spring.sleuth.function.enabled", matchIfMissing = true)
 @ConditionalOnBean(Tracing.class)
-@ConditionalOnClass(Tracer.class)
+@ConditionalOnClass({ Tracer.class, FunctionAroundWrapper.class })
 @AutoConfigureAfter(TraceAutoConfiguration.class)
 class TraceFunctionAutoConfiguration {
 
 	@Bean
-	TraceFunctionAroundWrapper traceFunctionAroundWrapper(Environment environment,
-			Tracing tracing) {
+	TraceFunctionAroundWrapper traceFunctionAroundWrapper(Environment environment, Tracing tracing) {
 		return new TraceFunctionAroundWrapper(environment, tracing);
 	}
 
@@ -72,23 +71,20 @@ class TraceFunctionAroundWrapper extends FunctionAroundWrapper {
 	}
 
 	@Override
-	protected Object doApply(Message<byte[]> message,
-			SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
-		TraceMessageHandler traceMessageHandler = TraceMessageHandler
-				.forNonSpringIntegration(this.tracing);
+	protected Object doApply(Message<byte[]> message, SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
+		TraceMessageHandler traceMessageHandler = TraceMessageHandler.forNonSpringIntegration(this.tracing);
 		if (log.isDebugEnabled()) {
 			log.debug("Will retrieve the tracing headers from the message");
 		}
-		MessageAndSpans wrappedInputMessage = traceMessageHandler
-				.wrapInputMessage(message, inputDestination(targetFunction));
+		MessageAndSpans wrappedInputMessage = traceMessageHandler.wrapInputMessage(message,
+				inputDestination(targetFunction));
 		if (log.isDebugEnabled()) {
 			log.debug("Wrapped input msg " + wrappedInputMessage);
 		}
 		Tracer tracer = this.tracing.tracer();
 		Object result;
 		Throwable throwable = null;
-		try (Tracer.SpanInScope ws = tracer
-				.withSpanInScope(wrappedInputMessage.childSpan.start())) {
+		try (Tracer.SpanInScope ws = tracer.withSpanInScope(wrappedInputMessage.childSpan.start())) {
 			result = targetFunction.apply(wrappedInputMessage.msg);
 		}
 		catch (Exception e) {
@@ -96,14 +92,11 @@ class TraceFunctionAroundWrapper extends FunctionAroundWrapper {
 			throw e;
 		}
 		finally {
-			traceMessageHandler.afterMessageHandled(wrappedInputMessage.childSpan,
-					throwable);
+			traceMessageHandler.afterMessageHandled(wrappedInputMessage.childSpan, throwable);
 		}
 		Message msgResult = toMessage(result);
-		MessageAndSpan wrappedOutputMessage = traceMessageHandler.wrapOutputMessage(
-				msgResult,
-				TraceContextOrSamplingFlags
-						.create(wrappedInputMessage.parentSpan.context()),
+		MessageAndSpan wrappedOutputMessage = traceMessageHandler.wrapOutputMessage(msgResult,
+				TraceContextOrSamplingFlags.create(wrappedInputMessage.parentSpan.context()),
 				outputDestination(targetFunction));
 		if (log.isDebugEnabled()) {
 			log.debug("Wrapped output msg " + wrappedOutputMessage);
@@ -119,24 +112,22 @@ class TraceFunctionAroundWrapper extends FunctionAroundWrapper {
 		return (Message) result;
 	}
 
-	private String inputDestination(
-			SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
+	private String inputDestination(SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
 		if (this.environment == null) {
 			return "";
 		}
 		String functionDefinition = targetFunction.getFunctionDefinition();
-		return this.environment.getProperty("spring.cloud.stream.bindings."
-				+ functionDefinition + "-in-0.destination", "");
+		return this.environment.getProperty("spring.cloud.stream.bindings." + functionDefinition + "-in-0.destination",
+				"");
 	}
 
-	private String outputDestination(
-			SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
+	private String outputDestination(SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
 		if (this.environment == null) {
 			return "";
 		}
 		String functionDefinition = targetFunction.getFunctionDefinition();
-		return this.environment.getProperty("spring.cloud.stream.bindings."
-				+ functionDefinition + "-out-0.destination", "");
+		return this.environment.getProperty("spring.cloud.stream.bindings." + functionDefinition + "-out-0.destination",
+				"");
 	}
 
 }
