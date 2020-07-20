@@ -113,18 +113,12 @@ class TraceFunctionAroundWrapper extends FunctionAroundWrapper {
 	}
 
 	private String inputDestination(SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
-		if (this.environment == null) {
-			return "";
-		}
 		String functionDefinition = targetFunction.getFunctionDefinition();
 		return this.environment.getProperty("spring.cloud.stream.bindings." + functionDefinition + "-in-0.destination",
 				"");
 	}
 
 	private String outputDestination(SimpleFunctionRegistry.FunctionInvocationWrapper targetFunction) {
-		if (this.environment == null) {
-			return "";
-		}
 		String functionDefinition = targetFunction.getFunctionDefinition();
 		return this.environment.getProperty("spring.cloud.stream.bindings." + functionDefinition + "-out-0.destination",
 				"");
