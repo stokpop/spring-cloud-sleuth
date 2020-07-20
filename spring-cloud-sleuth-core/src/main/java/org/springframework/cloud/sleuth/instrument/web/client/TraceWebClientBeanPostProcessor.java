@@ -234,11 +234,11 @@ final class TraceExchangeFilterFunction implements ExchangeFilterFunction {
 		public void onNext(ClientResponse response) {
 			try (Scope scope = currentTraceContext.maybeScope(parent)) {
 				// decorate response body
-				this.actual
-						.onNext(ClientResponse.from(response)
-								.body(response.bodyToFlux(DataBuffer.class)
-										.transform(this.scopePassingTransformer))
-								.build());
+				this.actual.onNext(ClientResponse.from(response)
+						// TODO: Why are we using scope passing transformer
+						.body(response.bodyToFlux(DataBuffer.class)
+								.transform(this.scopePassingTransformer))
+						.build());
 			}
 			finally {
 				Span span = getAndSet(null);

@@ -16,6 +16,9 @@
 
 package org.springframework.cloud.sleuth.instrument.messaging;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Contains trace related messaging headers. The deprecated headers contained `-` which
  * for example in the JMS specs is invalid. That's why the public constants in this class
@@ -57,6 +60,9 @@ public final class TraceMessageHeaders {
 	 * Span flags message header name.
 	 */
 	public static final String SPAN_FLAGS_NAME = "spanFlags";
+
+	static List<String> HEADERS = Arrays.asList(SAMPLED_NAME, SPAN_FLAGS_NAME,
+			SPAN_ID_NAME, SPAN_NAME_NAME, TRACE_ID_NAME, PARENT_ID_NAME);
 
 	private TraceMessageHeaders() {
 	}

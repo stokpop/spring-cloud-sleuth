@@ -22,8 +22,10 @@ import brave.propagation.Propagation;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.function.context.FunctionCatalog;
 import org.springframework.cloud.sleuth.autoconfig.TraceAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -50,21 +52,54 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 @EnableConfigurationProperties(SleuthMessagingProperties.class)
 class TraceSpringIntegrationAutoConfiguration {
 
-	@Bean
-	public GlobalChannelInterceptorWrapper tracingGlobalChannelInterceptorWrapper(
-			TracingChannelInterceptor interceptor, SleuthMessagingProperties properties) {
-		GlobalChannelInterceptorWrapper wrapper = new GlobalChannelInterceptorWrapper(
-				interceptor);
-		wrapper.setPatterns(properties.getIntegration().getPatterns());
-		return wrapper;
+	@Configuration
+	@ConditionalOnMissingClass("org.springframework.cloud.function.context.FunctionCatalog")
+	static class OnFunctionMissing {
+
+		@Bean
+		public GlobalChannelInterceptorWrapper tracingGlobalChannelInterceptorWrapper(
+				TracingChannelInterceptor interceptor,
+				SleuthMessagingProperties properties) {
+			GlobalChannelInterceptorWrapper wrapper = new GlobalChannelInterceptorWrapper(
+					interceptor);
+			wrapper.setPatterns(properties.getIntegration().getPatterns());
+			return wrapper;
+		}
+
+		@Bean
+		TracingChannelInterceptor traceChannelInterceptor(Tracing tracing,
+				Propagation.Setter<MessageHeaderAccessor, String> traceMessagePropagationSetter,
+				Propagation.Getter<MessageHeaderAccessor, String> traceMessagePropagationGetter) {
+			return new TracingChannelInterceptor(tracing, traceMessagePropagationSetter,
+					traceMessagePropagationGetter);
+		}
+
 	}
 
-	@Bean
-	TracingChannelInterceptor traceChannelInterceptor(Tracing tracing,
-			Propagation.Setter<MessageHeaderAccessor, String> traceMessagePropagationSetter,
-			Propagation.Getter<MessageHeaderAccessor, String> traceMessagePropagationGetter) {
-		return new TracingChannelInterceptor(tracing, traceMessagePropagationSetter,
-				traceMessagePropagationGetter);
+	@Configuration
+	@ConditionalOnClass(FunctionCatalog.class)
+	@ConditionalOnProperty(value = "spring.sleuth.integration.enabled",
+			havingValue = "true")
+	static class OnFunctionPresent {
+
+		@Bean
+		public GlobalChannelInterceptorWrapper tracingGlobalChannelInterceptorWrapper(
+				TracingChannelInterceptor interceptor,
+				SleuthMessagingProperties properties) {
+			GlobalChannelInterceptorWrapper wrapper = new GlobalChannelInterceptorWrapper(
+					interceptor);
+			wrapper.setPatterns(properties.getIntegration().getPatterns());
+			return wrapper;
+		}
+
+		@Bean
+		TracingChannelInterceptor traceChannelInterceptor(Tracing tracing,
+				Propagation.Setter<MessageHeaderAccessor, String> traceMessagePropagationSetter,
+				Propagation.Getter<MessageHeaderAccessor, String> traceMessagePropagationGetter) {
+			return new TracingChannelInterceptor(tracing, traceMessagePropagationSetter,
+					traceMessagePropagationGetter);
+		}
+
 	}
 
 }

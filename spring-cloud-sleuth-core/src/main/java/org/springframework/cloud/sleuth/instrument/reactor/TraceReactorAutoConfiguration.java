@@ -16,9 +16,9 @@
 
 package org.springframework.cloud.sleuth.instrument.reactor;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.function.Function;
-
-import javax.annotation.PreDestroy;
 
 import brave.Tracing;
 import org.apache.commons.logging.Log;
@@ -80,32 +80,6 @@ class TraceReactorAutoConfiguration {
 
 		@Autowired
 		ConfigurableApplicationContext springContext;
-
-		@PreDestroy
-		public void cleanupHooks() {
-			if (log.isTraceEnabled()) {
-				log.trace("Cleaning up hooks");
-			}
-			SleuthReactorProperties reactorProperties = this.springContext
-					.getBean(SleuthReactorProperties.class);
-			switch (reactorProperties.getInstrumentationType()) {
-			case DECORATE_ON_EACH:
-				if (log.isTraceEnabled()) {
-					log.trace("Resetting onEach operator instrumentation");
-				}
-				Hooks.resetOnEachOperator(SLEUTH_TRACE_REACTOR_KEY);
-				break;
-			case DECORATE_ON_LAST:
-			case MANUAL:
-				if (log.isTraceEnabled()) {
-					log.trace("Resetting onLast operator instrumentation");
-				}
-				Hooks.resetOnLastOperator(SLEUTH_TRACE_REACTOR_KEY);
-				break;
-			}
-			Schedulers
-					.removeExecutorServiceDecorator(SLEUTH_REACTOR_EXECUTOR_SERVICE_KEY);
-		}
 
 		@Bean
 		@ConditionalOnMissingBean
@@ -181,7 +155,7 @@ class HooksRefresher implements ApplicationListener<RefreshScopeRefreshedEvent> 
 }
 
 class HookRegisteringBeanDefinitionRegistryPostProcessor
-		implements BeanDefinitionRegistryPostProcessor {
+		implements BeanDefinitionRegistryPostProcessor, Closeable {
 
 	private static final Log log = LogFactory
 			.getLog(HookRegisteringBeanDefinitionRegistryPostProcessor.class);
@@ -245,6 +219,17 @@ class HookRegisteringBeanDefinitionRegistryPostProcessor
 		}
 		Hooks.onEachOperator(SLEUTH_TRACE_REACTOR_KEY,
 				scopePassingSpanOperator(springContext));
+	}
+
+	@Override
+	public void close() throws IOException {
+		if (log.isTraceEnabled()) {
+			log.trace("Cleaning up hooks");
+		}
+		Hooks.resetOnEachOperator(SLEUTH_TRACE_REACTOR_KEY);
+		Hooks.resetOnLastOperator(SLEUTH_TRACE_REACTOR_KEY);
+		Schedulers.removeExecutorServiceDecorator(
+				TraceReactorAutoConfiguration.SLEUTH_REACTOR_EXECUTOR_SERVICE_KEY);
 	}
 
 }

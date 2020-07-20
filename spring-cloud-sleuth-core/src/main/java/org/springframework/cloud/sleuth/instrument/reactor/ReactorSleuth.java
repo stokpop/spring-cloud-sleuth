@@ -98,13 +98,6 @@ public abstract class ReactorSleuth {
 				return sub;
 			}
 
-			Context context = sub.currentContext();
-
-			if (log.isTraceEnabled()) {
-				log.trace("Spring context [" + springContext + "], Reactor context ["
-						+ context + "], name [" + name(sub) + "]");
-			}
-
 			// Try to get the current trace context bean, lenient when there are problems
 			CurrentTraceContext currentTraceContext = lazyCurrentTraceContext.get();
 			if (currentTraceContext == null) {
@@ -120,6 +113,12 @@ public abstract class ReactorSleuth {
 				return sub;
 			}
 
+			Context context = contextWithBeans(springContext, sub);
+			if (log.isTraceEnabled()) {
+				log.trace("Spring context [" + springContext + "], Reactor context ["
+						+ context + "], name [" + name(sub) + "]");
+			}
+
 			TraceContext parent = traceContext(context, currentTraceContext);
 			if (parent == null) {
 				return sub; // no need to scope a null parent
@@ -129,44 +128,25 @@ public abstract class ReactorSleuth {
 				log.trace("Creating a scope passing span subscriber with Reactor Context "
 						+ "[" + context + "] and name [" + name(sub) + "]");
 			}
-			// Scannable.from(this.subscriber).scan(Attr.RUN_STYLE)
-			// if (SYNC) - do the instrumentation but I DON'T WANT TO CREATE A NEW OBJECT
-
-			// Scannable.Attr.RunStyle runStyle =
-			// Scannable.from(sub).scan(Scannable.Attr.RUN_STYLE);
-			// 3 operators, A (sync), B, C
-
-			// 1 -> ThreadLocal TraceId 1 (A)
-			// 2 -> 1 (B)
-			// 3 -> 1 (C)
-			// Whenever the Thread is changed or flux finished
-			// cleanup -> remove stuff from ThreadLocal after 3
-
-			// 4 operators A, B, C, D
-			// A Thread 1, B Thread 2 (Set UP) -> C (Clean UP Thread 2), D Thread 1 (Clean
-			// UP Thread 1)
-			//
-
-			// Flux
-			// .from()
-			// .doOnDiscard()
-			// .doOnEach()
-			// .subscribe();
-			// @Autowired Tracer tracer;
-			// Span span = tracer.currentSpan();
-
-			// no sleuth - 2000 req / s
-			// app1 -contex-> app2 -contex-> app3
-			// log.info(...)
-			// sleuth - onLastOperator 900 req / s
-			// sleuth - onEach - 300 req / s
-
 			// if (runStyle == Scannable.Attr.RunStyle.SYNC) {
 			// return sub;
 			// }
 			return new ScopePassingSpanSubscriber<>(sub, context, currentTraceContext,
 					parent);
 		});
+	}
+
+	private static <T> Context contextWithBeans(
+			ConfigurableApplicationContext springContext, CoreSubscriber<? super T> sub) {
+		Context context = sub.currentContext();
+		if (!context.hasKey(Tracing.class)) {
+			context = context.put(Tracing.class, springContext.getBean(Tracing.class));
+		}
+		if (!context.hasKey(CurrentTraceContext.class)) {
+			context = context.put(CurrentTraceContext.class,
+					springContext.getBean(CurrentTraceContext.class));
+		}
+		return context;
 	}
 
 	static <T> Function<? super Publisher<T>, ? extends Publisher<T>> springContextSpanOperator(
@@ -183,8 +163,7 @@ public abstract class ReactorSleuth {
 			if (!springContext.isActive()) {
 				return sub;
 			}
-			final Context context = sub.currentContext().put(CurrentTraceContext.class,
-					springContext.getBean(CurrentTraceContext.class));
+			final Context context = contextWithBeans(springContext, sub);
 			return new SleuthContextOperator<>(context, sub);
 		});
 	}
