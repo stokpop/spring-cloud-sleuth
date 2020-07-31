@@ -716,6 +716,10 @@ In order to achieve best results in terms of performance and context propagation
 To change the order of tracing filter registration, please set the
 `spring.sleuth.web.filter-order` property.
 
+==== Netty HTTP codec support
+
+if you want to disable this feature, set `spring.sleuth.web.async.client.template.enabled` to `false`.
+
 ==== Dubbo RPC support
 
 Via the integration with Brave, Spring Cloud Sleuth supports https://dubbo.apache.org/[Dubbo].

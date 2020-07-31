@@ -17,12 +17,20 @@
 package org.springframework.cloud.sleuth.instrument.web;
 
 import brave.Tracing;
+import brave.http.HttpTracing;
+import brave.netty.http.NettyHttpTracing;
+import io.netty.channel.ChannelDuplexHandler;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.web.embedded.netty.NettyReactiveWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -43,6 +51,49 @@ class TraceWebFluxAutoConfiguration {
 	@Bean
 	public TraceWebFilter traceFilter(BeanFactory beanFactory) {
 		return new TraceWebFilter(beanFactory);
+	}
+
+	@Configuration(proxyBeanMethods = false)
+	@ConditionalOnClass(NettyReactiveWebServerFactory.class)
+	@ConditionalOnProperty(value = "spring.sleuth.web.netty.enabled",
+			matchIfMissing = true)
+	static class NettyConfiguration {
+
+		@Bean
+		@ConditionalOnBean(HttpTracing.class)
+		TraceNettyWebServerFactoryCustomizer traceNettyWebServerFactoryCustomizer(
+				HttpTracing httpTracing) {
+			return new TraceNettyWebServerFactoryCustomizer(httpTracing);
+		}
+
+	}
+
+}
+
+class TraceNettyWebServerFactoryCustomizer
+		implements WebServerFactoryCustomizer<NettyReactiveWebServerFactory> {
+
+	private static final Log log = LogFactory
+			.getLog(TraceNettyWebServerFactoryCustomizer.class);
+
+	private final ChannelDuplexHandler handler;
+
+	TraceNettyWebServerFactoryCustomizer(HttpTracing httpTracing) {
+		NettyHttpTracing nettyHttpTracing = NettyHttpTracing.create(httpTracing);
+		this.handler = nettyHttpTracing.serverHandler();
+	}
+
+	@Override
+	public void customize(NettyReactiveWebServerFactory factory) {
+		factory.addServerCustomizers(
+				httpServer -> httpServer.doOnConnection(connection -> {
+					if (log.isDebugEnabled()) {
+						log.debug("Added tracing handler");
+					}
+					if (connection.channel().pipeline().get("tracing") == null) {
+						connection.addHandlerFirst("tracing", handler);
+					}
+				}));
 	}
 
 }

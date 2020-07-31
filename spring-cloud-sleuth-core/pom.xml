@@ -259,6 +259,10 @@
 			<artifactId>brave-instrumentation-mongodb</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>io.zipkin.brave</groupId>
+			<artifactId>brave-instrumentation-netty-codec-http</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>javax.jms</groupId>
 			<artifactId>javax.jms-api</artifactId>
 			<optional>true</optional>
