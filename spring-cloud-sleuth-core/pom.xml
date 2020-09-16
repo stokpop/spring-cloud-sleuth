@@ -195,6 +195,12 @@
 			<groupId>org.aspectj</groupId>
 			<artifactId>aspectjrt</artifactId>
 		</dependency>
+
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-api</artifactId>
+		</dependency>
+
 		<!-- BRAVE -->
 		<dependency>
 			<groupId>io.zipkin.brave</groupId>
