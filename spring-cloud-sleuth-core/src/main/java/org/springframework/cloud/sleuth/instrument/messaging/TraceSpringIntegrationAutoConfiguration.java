@@ -17,7 +17,8 @@
 package org.springframework.cloud.sleuth.instrument.messaging;
 
 import brave.Tracing;
-import brave.propagation.Propagation;
+import io.opentelemetry.context.propagation.TextMapPropagator;
+import io.opentelemetry.trace.Tracer;
 
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.AnyNestedCondition;
@@ -66,10 +67,10 @@ class TraceSpringIntegrationAutoConfiguration {
 	}
 
 	@Bean
-	TracingChannelInterceptor traceChannelInterceptor(Tracing tracing, SleuthMessagingProperties properties,
-			Propagation.Setter<MessageHeaderAccessor, String> traceMessagePropagationSetter,
-			Propagation.Getter<MessageHeaderAccessor, String> traceMessagePropagationGetter) {
-		return new TracingChannelInterceptor(tracing, properties, traceMessagePropagationSetter,
+	TracingChannelInterceptor traceChannelInterceptor(Tracer tracer, SleuthMessagingProperties properties,
+			TextMapPropagator.Setter<MessageHeaderAccessor> traceMessagePropagationSetter,
+			TextMapPropagator.Getter<MessageHeaderAccessor> traceMessagePropagationGetter) {
+		return new TracingChannelInterceptor(tracer, properties, traceMessagePropagationSetter,
 				traceMessagePropagationGetter);
 	}
 

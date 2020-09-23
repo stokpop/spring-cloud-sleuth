@@ -16,7 +16,7 @@
 
 package org.springframework.cloud.sleuth.instrument.messaging;
 
-import brave.propagation.Propagation;
+import io.opentelemetry.context.propagation.TextMapPropagator;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -33,13 +33,13 @@ class TraceSpringMessagingAutoConfiguration {
 
 	@Bean
 	@ConditionalOnMissingBean
-	Propagation.Setter<MessageHeaderAccessor, String> traceMessagePropagationSetter() {
+	TextMapPropagator.Setter<MessageHeaderAccessor> traceMessagePropagationSetter() {
 		return MessageHeaderPropagation.INSTANCE;
 	}
 
 	@Bean
 	@ConditionalOnMissingBean
-	Propagation.Getter<MessageHeaderAccessor, String> traceMessagePropagationGetter() {
+	TextMapPropagator.Getter<MessageHeaderAccessor> traceMessagePropagationGetter() {
 		return MessageHeaderPropagation.INSTANCE;
 	}
 

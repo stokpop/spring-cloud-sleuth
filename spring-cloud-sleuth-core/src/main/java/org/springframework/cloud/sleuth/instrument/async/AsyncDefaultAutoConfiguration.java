@@ -18,8 +18,7 @@ package org.springframework.cloud.sleuth.instrument.async;
 
 import java.util.concurrent.Executor;
 
-import brave.Tracer;
-import brave.Tracing;
+import io.opentelemetry.trace.Tracer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -55,7 +54,7 @@ import org.springframework.scheduling.annotation.AsyncConfigurerSupport;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SleuthAsyncProperties.class)
 @ConditionalOnProperty(value = "spring.sleuth.async.enabled", matchIfMissing = true)
-@ConditionalOnBean(Tracing.class)
+@ConditionalOnBean(Tracer.class)
 class AsyncDefaultAutoConfiguration {
 
 	@Bean
@@ -97,7 +96,7 @@ class AsyncDefaultAutoConfiguration {
 		 * the context, or for an {@link Executor} bean named "taskExecutor" otherwise. If
 		 * neither of the two is resolvable, this implementation will return {@code null}.
 		 * @return the default executor, or {@code null} if none available
-		 * @see AsyncExecutionAspectSupport#getDefaultExecutor(org.springframework.beans.factory.BeanFactory)
+		 * @see AsyncExecutionAspectSupport#getDefaultExecutor(BeanFactory)
 		 */
 		private Executor getDefaultExecutor() {
 			try {

@@ -16,14 +16,8 @@
 
 package org.springframework.cloud.sleuth.instrument.messaging;
 
-import brave.Span;
-import brave.SpanCustomizer;
-import brave.Tracer;
-import brave.Tracing;
-import brave.propagation.Propagation;
-import brave.propagation.ThreadLocalSpan;
-import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
+import io.opentelemetry.context.propagation.TextMapPropagator;
+import io.opentelemetry.trace.Tracer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -87,8 +81,6 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 	 */
 	private static final String REMOTE_SERVICE_NAME = "broker";
 
-	final Tracing tracing;
-
 	final Tracer tracer;
 
 	final ThreadLocalSpan threadLocalSpan;
@@ -112,8 +104,8 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 	}
 
 	TracingChannelInterceptor(Tracing tracing, SleuthMessagingProperties properties,
-			Propagation.Setter<MessageHeaderAccessor, String> setter,
-			Propagation.Getter<MessageHeaderAccessor, String> getter) {
+			TextMapPropagator.Setter<MessageHeaderAccessor> setter,
+			TextMapPropagator.Getter<MessageHeaderAccessor> getter) {
 		this.tracing = tracing;
 		this.properties = properties;
 		this.tracer = tracing.tracer();
@@ -144,7 +136,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 		TraceContextOrSamplingFlags extracted = this.extractor.extract(headers);
 		headers.setImmutable();
 		Span result = this.tracer.nextSpan(extracted);
-		if (extracted.context() == null && !result.isNoop()) {
+		if (extracted.context() == null && !result.isRecording()) {
 			addTags(message, result, null);
 		}
 		if (log.isDebugEnabled()) {
@@ -167,7 +159,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 		Span span = this.threadLocalSpan.next(extracted);
 		MessageHeaderPropagation.removeAnyTraceHeaders(headers, this.tracing.propagation().keys());
 		this.injector.inject(span.context(), headers);
-		if (!span.isNoop()) {
+		if (!span.isRecording()) {
 			span.kind(Span.Kind.PRODUCER).name("send").start();
 			span.remoteServiceName(toRemoteServiceName(headers));
 			addTags(message, span, channel);
@@ -239,7 +231,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 			afterMessageHandled(message, channel, null, ex);
 		}
 		if (log.isDebugEnabled()) {
-			log.debug("Will finish the current span after completion " + this.tracer.currentSpan());
+			log.debug("Will finish the current span after completion " + this.tracer.getCurrentSpan());
 		}
 		finishSpan(ex);
 	}
@@ -258,7 +250,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 		Span span = this.threadLocalSpan.next(extracted);
 		MessageHeaderPropagation.removeAnyTraceHeaders(headers, this.tracing.propagation().keys());
 		this.injector.inject(span.context(), headers);
-		if (!span.isNoop()) {
+		if (!span.isRecording()) {
 			span.kind(Span.Kind.CONSUMER).name("receive").start();
 			span.remoteServiceName(toRemoteServiceName(headers));
 			addTags(message, span, channel);
@@ -281,7 +273,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 			return;
 		}
 		if (log.isDebugEnabled()) {
-			log.debug("Will finish the current span after receive completion " + this.tracer.currentSpan());
+			log.debug("Will finish the current span after receive completion " + this.tracer.getCurrentSpan());
 		}
 		finishSpan(ex);
 	}
@@ -299,11 +291,11 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 		TraceContextOrSamplingFlags extracted = this.extractor.extract(headers);
 		// Start and finish a consumer span as we will immediately process it.
 		Span consumerSpan = this.tracer.nextSpan(extracted);
-		if (!consumerSpan.isNoop()) {
+		if (!consumerSpan.isRecording()) {
 			consumerSpan.kind(Span.Kind.CONSUMER).start();
 			consumerSpan.remoteServiceName(REMOTE_SERVICE_NAME);
 			addTags(message, consumerSpan, channel);
-			consumerSpan.finish();
+			consumerSpan.end();
 		}
 		// create and scope a span for the message processor
 		this.threadLocalSpan.next(TraceContextOrSamplingFlags.create(consumerSpan.context())).name("handle").start();
@@ -327,7 +319,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 			return;
 		}
 		if (log.isDebugEnabled()) {
-			log.debug("Will finish the current span after message handled " + this.tracer.currentSpan());
+			log.debug("Will finish the current span after message handled " + this.tracer.getCurrentSpan());
 		}
 		finishSpan(ex);
 	}
@@ -338,10 +330,10 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 	 * @param result span to customize
 	 * @param channel channel to which a message was sent
 	 */
-	void addTags(Message<?> message, SpanCustomizer result, MessageChannel channel) {
+	void addTags(Message<?> message, Span result, MessageChannel channel) {
 		// TODO topic etc
 		if (channel != null) {
-			result.tag("channel", messageChannelName(channel));
+			result.setAttribute("channel", messageChannelName(channel));
 		}
 	}
 
@@ -367,7 +359,7 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 
 	void finishSpan(Exception error) {
 		Span span = this.threadLocalSpan.remove();
-		if (span == null || span.isNoop()) {
+		if (span == null || span.isRecording()) {
 			return;
 		}
 		if (error != null) { // an error occurred, adding error to span
@@ -375,9 +367,9 @@ final class TracingChannelInterceptor extends ChannelInterceptorAdapter implemen
 			if (message == null) {
 				message = error.getClass().getSimpleName();
 			}
-			span.tag("error", message);
+			span.setAttribute("error", message);
 		}
-		span.finish();
+		span.end();
 	}
 
 	private MessageHeaderAccessor mutableHeaderAccessor(Message<?> message) {

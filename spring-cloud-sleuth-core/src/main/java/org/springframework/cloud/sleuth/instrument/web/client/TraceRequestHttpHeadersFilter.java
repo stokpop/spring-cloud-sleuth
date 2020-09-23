@@ -92,7 +92,7 @@ final class TraceRequestHttpHeadersFilter extends AbstractHttpHeadersFilter {
 			}
 			return (Span) attribute;
 		}
-		return this.tracer.currentSpan();
+		return this.tracer.getCurrentSpan();
 	}
 
 	private Span injectedSpan(HttpClientRequest request, Span currentSpan) {

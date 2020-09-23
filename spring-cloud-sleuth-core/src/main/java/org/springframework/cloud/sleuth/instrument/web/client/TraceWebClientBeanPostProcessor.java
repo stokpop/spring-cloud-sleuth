@@ -241,7 +241,7 @@ final class TraceExchangeFilterFunction implements ExchangeFilterFunction {
 				Span span = getAndSet(null);
 				if (span != null) {
 					span.error(t);
-					span.finish();
+					span.end();
 				}
 			}
 		}
@@ -315,7 +315,7 @@ final class TraceExchangeFilterFunction implements ExchangeFilterFunction {
 				}
 				else { // Request was canceled in-flight
 					span.error(CANCELLED_ERROR);
-					span.finish();
+					span.end();
 				}
 			}
 		}

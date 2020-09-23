@@ -282,7 +282,7 @@ final class TraceWebFilter implements WebFilter, Ordered {
 			private void addClassMethodTag(Object handler, Span span) {
 				if (handler instanceof HandlerMethod) {
 					String methodName = ((HandlerMethod) handler).getMethod().getName();
-					span.tag(MVC_CONTROLLER_METHOD_KEY, methodName);
+					span.setAttribute(MVC_CONTROLLER_METHOD_KEY, methodName);
 					if (log.isDebugEnabled()) {
 						log.debug("Adding a method tag with value [" + methodName + "] to a span " + span);
 					}
@@ -303,13 +303,13 @@ final class TraceWebFilter implements WebFilter, Ordered {
 				if (log.isDebugEnabled()) {
 					log.debug("Adding a class tag with value [" + className + "] to a span " + span);
 				}
-				span.tag(MVC_CONTROLLER_CLASS_KEY, className);
+				span.setAttribute(MVC_CONTROLLER_CLASS_KEY, className);
 			}
 
 			private void addResponseTagsForSpanWithoutParent(ServerWebExchange exchange, ServerHttpResponse response,
 					Span span) {
 				if (spanWithoutParent(exchange) && response.getStatusCode() != null && span != null) {
-					span.tag(STATUS_CODE_KEY, String.valueOf(response.getStatusCode().value()));
+					span.setAttribute(STATUS_CODE_KEY, String.valueOf(response.getStatusCode().value()));
 				}
 			}
 

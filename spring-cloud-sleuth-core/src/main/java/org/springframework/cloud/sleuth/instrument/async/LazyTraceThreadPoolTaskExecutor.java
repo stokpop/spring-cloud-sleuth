@@ -22,7 +22,7 @@ import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 
-import brave.Tracing;
+import io.opentelemetry.trace.Tracer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -52,7 +52,7 @@ public class LazyTraceThreadPoolTaskExecutor extends ThreadPoolTaskExecutor {
 
 	private final String beanName;
 
-	private Tracing tracing;
+	private Tracer tracer;
 
 	private SpanNamer spanNamer;
 
@@ -71,37 +71,37 @@ public class LazyTraceThreadPoolTaskExecutor extends ThreadPoolTaskExecutor {
 	@Override
 	public void execute(Runnable task) {
 		this.delegate.execute(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceRunnable(tracing(), spanNamer(), task, this.beanName));
+				: new TraceRunnable(tracer(), spanNamer(), task, this.beanName));
 	}
 
 	@Override
 	public void execute(Runnable task, long startTimeout) {
 		this.delegate.execute(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceRunnable(tracing(), spanNamer(), task, this.beanName), startTimeout);
+				: new TraceRunnable(tracer(), spanNamer(), task, this.beanName), startTimeout);
 	}
 
 	@Override
 	public Future<?> submit(Runnable task) {
 		return this.delegate.submit(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceRunnable(tracing(), spanNamer(), task, this.beanName));
+				: new TraceRunnable(tracer(), spanNamer(), task, this.beanName));
 	}
 
 	@Override
 	public <T> Future<T> submit(Callable<T> task) {
 		return this.delegate.submit(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceCallable<>(tracing(), spanNamer(), task, this.beanName));
+				: new TraceCallable<>(tracer(), spanNamer(), task, this.beanName));
 	}
 
 	@Override
 	public ListenableFuture<?> submitListenable(Runnable task) {
 		return this.delegate.submitListenable(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceRunnable(tracing(), spanNamer(), task, this.beanName));
+				: new TraceRunnable(tracer(), spanNamer(), task, this.beanName));
 	}
 
 	@Override
 	public <T> ListenableFuture<T> submitListenable(Callable<T> task) {
 		return this.delegate.submitListenable(ContextUtil.isContextUnusable(this.beanFactory) ? task
-				: new TraceCallable<>(tracing(), spanNamer(), task, this.beanName));
+				: new TraceCallable<>(tracer(), spanNamer(), task, this.beanName));
 	}
 
 	@Override
@@ -272,11 +272,11 @@ public class LazyTraceThreadPoolTaskExecutor extends ThreadPoolTaskExecutor {
 		this.delegate.setTaskDecorator(taskDecorator);
 	}
 
-	private Tracing tracing() {
-		if (this.tracing == null) {
-			this.tracing = this.beanFactory.getBean(Tracing.class);
+	private Tracer tracer() {
+		if (this.tracer == null) {
+			this.tracer = this.beanFactory.getBean(Tracer.class);
 		}
-		return this.tracing;
+		return this.tracer;
 	}
 
 	private SpanNamer spanNamer() {

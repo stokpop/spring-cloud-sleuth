@@ -16,8 +16,9 @@
 
 package org.springframework.cloud.sleuth.sampler;
 
-import brave.sampler.CountingSampler;
-import brave.sampler.Sampler;
+import io.opentelemetry.sdk.trace.Sampler;
+import io.opentelemetry.sdk.trace.Samplers;
+import io.opentelemetry.sdk.trace.export.SpanExporter;
 import org.jetbrains.annotations.NotNull;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -26,14 +27,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 
 /**
  * {@linkplain Configuration configuration} for {@link Sampler}.
  *
  * @author Marcin Grzejszczak
- * @see SamplerCondition
  * @since 2.1.0
  */
 @Configuration(proxyBeanMethods = false)
@@ -46,21 +45,12 @@ public class SamplerAutoConfiguration {
 	@Bean
 	@ConditionalOnMissingBean
 	Sampler sleuthTraceSampler() {
-		return Sampler.NEVER_SAMPLE;
-	}
-
-	// NOTE: Brave's default samplers return Sampler.NEVER_SAMPLE if the config implies
-	// that
-	static Sampler samplerFromProps(SamplerProperties config) {
-		if (config.getProbability() != null) {
-			return CountingSampler.create(config.getProbability());
-		}
-		return brave.sampler.RateLimitingSampler.create(config.getRate());
+		return Samplers.alwaysOff();
 	}
 
 	@Configuration(proxyBeanMethods = false)
-	@Conditional(SamplerCondition.class)
-	@ConditionalOnBean(type = "org.springframework.cloud.context.scope.refresh.RefreshScope")
+	@ConditionalOnBean(value = SpanExporter.class,
+			type = "org.springframework.cloud.context.scope.refresh.RefreshScope")
 	protected static class RefreshScopedSamplerConfiguration {
 
 		@Bean
@@ -85,20 +75,34 @@ public class SamplerAutoConfiguration {
 			if (config.getProbability() != null) {
 				return new ProbabilityBasedSampler(config);
 			}
-			return new RateLimitingSampler(config);
+			// TODO: Not yet supported
+			// return new RateLimitingSampler(config);
+			return Samplers.alwaysOff();
 		}
 
 	}
 
 	@Configuration(proxyBeanMethods = false)
-	@Conditional(SamplerCondition.class)
+	@ConditionalOnBean(SpanExporter.class)
 	@ConditionalOnMissingBean(type = "org.springframework.cloud.context.scope.refresh.RefreshScope")
 	protected static class NonRefreshScopeSamplerConfiguration {
 
 		@Bean
 		@ConditionalOnMissingBean
 		public Sampler defaultTraceSampler(SamplerProperties config) {
-			return samplerFromProps(config);
+			return sampler(config);
+		}
+
+		@NotNull
+		private Sampler sampler(SamplerProperties config) {
+			// TODO: Rewrite: refresh should replace the sampler, not change its state
+			// internally
+			if (config.getProbability() != null) {
+				return new ProbabilityBasedSampler(config);
+			}
+			// TODO: Not yet supported
+			// return new RateLimitingSampler(config);
+			return Samplers.alwaysOff();
 		}
 
 	}

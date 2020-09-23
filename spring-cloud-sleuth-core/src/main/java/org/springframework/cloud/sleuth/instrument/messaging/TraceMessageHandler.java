@@ -21,16 +21,19 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
 
-import brave.Span;
-import brave.SpanCustomizer;
-import brave.Tracer;
-import brave.Tracing;
-import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
+import io.grpc.Context;
+import io.opentelemetry.OpenTelemetry;
+import io.opentelemetry.context.ContextUtils;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapPropagator;
+import io.opentelemetry.trace.Span;
+import io.opentelemetry.trace.SpanContext;
+import io.opentelemetry.trace.Tracer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import org.springframework.cloud.sleuth.internal.SpanNameUtil;
+import org.springframework.cloud.sleuth.internal.TraceContextUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.MessagingException;
@@ -66,44 +69,40 @@ class TraceMessageHandler {
 
 	private static final String TRACE_HANDLER_PARENT_SPAN = "traceHandlerParentSpan";
 
-	private final Tracing tracing;
-
 	private final Tracer tracer;
 
-	private final TraceContext.Injector<MessageHeaderAccessor> injector;
+	private final TextMapPropagator.Setter<MessageHeaderAccessor> injector;
 
-	private final TraceContext.Extractor<MessageHeaderAccessor> extractor;
+	private final TextMapPropagator.Getter<MessageHeaderAccessor> extractor;
 
-	private final Function<TraceContext, Span> preSendFunction;
+	private final Function<SpanContext, Span> preSendFunction;
 
 	private final TriConsumer<MessageHeaderAccessor, Span, Span> preSendMessageManipulator;
 
-	private final Function<TraceContext, Span> outputMessageSpanFunction;
+	private final Function<SpanContext, Span> outputMessageSpanFunction;
 
-	TraceMessageHandler(Tracing tracing, Function<TraceContext, Span> preSendFunction,
+	TraceMessageHandler(Tracer tracer, Function<SpanContext, Span> preSendFunction,
 			TriConsumer<MessageHeaderAccessor, Span, Span> preSendMessageManipulator,
-			Function<TraceContext, Span> outputMessageSpanFunction) {
-		this.tracing = tracing;
-		this.tracer = tracing.tracer();
-		this.injector = tracing.propagation().injector(MessageHeaderPropagation.INSTANCE);
-		this.extractor = tracing.propagation().extractor(MessageHeaderPropagation.INSTANCE);
+			Function<SpanContext, Span> outputMessageSpanFunction) {
+		this.tracer = tracer;
+		this.injector = MessageHeaderPropagation.INSTANCE;
+		this.extractor = MessageHeaderPropagation.INSTANCE;
 		// TODO: Abstractions to reuse in TraceChannelInterceptors?
 		this.preSendFunction = preSendFunction;
 		this.preSendMessageManipulator = preSendMessageManipulator;
 		this.outputMessageSpanFunction = outputMessageSpanFunction;
 	}
 
-	static TraceMessageHandler forNonSpringIntegration(Tracing tracing) {
-		Tracer tracer = tracing.tracer();
-		Function<TraceContext, Span> preSendFunction = ctx -> tracer.nextSpan(TraceContextOrSamplingFlags.create(ctx))
-				.name("handle").start();
+	static TraceMessageHandler forNonSpringIntegration(Tracer tracer) {
+		// TODO: How to continue a span?
+		Function<SpanContext, Span> preSendFunction = ctx -> tracer.spanBuilder("handle").setParent(ctx).startSpan();
 		TriConsumer<MessageHeaderAccessor, Span, Span> preSendMessageManipulator = (headers, parentSpan, childSpan) -> {
 			headers.setHeader("traceHandlerParentSpan", parentSpan);
 			headers.setHeader(Span.class.getName(), childSpan);
 		};
-		Function<TraceContext, Span> postReceiveFunction = ctx -> tracer
-				.nextSpan(TraceContextOrSamplingFlags.create(ctx));
-		return new TraceMessageHandler(tracing, preSendFunction, preSendMessageManipulator, postReceiveFunction);
+		// TODO: How to continue a span?
+		Function<SpanContext, Span> postReceiveFunction = ctx -> tracer.spanBuilder("").setParent(ctx).startSpan();
+		return new TraceMessageHandler(tracer, preSendFunction, preSendMessageManipulator, postReceiveFunction);
 	}
 
 	/**
@@ -115,17 +114,19 @@ class TraceMessageHandler {
 	 */
 	MessageAndSpans wrapInputMessage(Message<?> message, String destinationName) {
 		MessageHeaderAccessor headers = mutableHeaderAccessor(message);
-		TraceContextOrSamplingFlags extracted = this.extractor.extract(headers);
+		Context extractedContext = OpenTelemetry.getPropagators().getTextMapPropagator()
+				.extract(Context.current(), headers, extractor);
 		// Start and finish a consumer span as we will immediately process it.
-		Span consumerSpan = this.tracer.nextSpan(extracted);
-		if (!consumerSpan.isNoop()) {
-			consumerSpan.kind(Span.Kind.CONSUMER).start();
-			consumerSpan.remoteServiceName(REMOTE_SERVICE_NAME);
+		Span consumerSpan = TraceContextUtils.fromContext(this.tracer, extractedContext);
+		if (!consumerSpan.isRecording()) {
+			// TODO: How to do this on a continued span?
+			//			consumerSpan.kind(Span.Kind.CONSUMER).start();
+			//			consumerSpan.remoteServiceName(REMOTE_SERVICE_NAME);
 			addTags(consumerSpan, destinationName);
-			consumerSpan.finish();
+			consumerSpan.end();
 		}
 		// create and scope a span for the message processor
-		Span span = this.preSendFunction.apply(consumerSpan.context());
+		Span span = this.preSendFunction.apply(consumerSpan.getContext());
 		// remove any trace headers, but don't re-inject as we are synchronously
 		// processing the
 		// message and can rely on scoping to access this span later.
@@ -153,16 +154,20 @@ class TraceMessageHandler {
 		if (span != null) {
 			return span;
 		}
-		TraceContextOrSamplingFlags extracted = this.extractor.extract(headers);
-		if (extracted == TraceContextOrSamplingFlags.EMPTY) {
+		Context current = Context.current();
+		Context extract = OpenTelemetry.getPropagators().getTextMapPropagator()
+				.extract(current, headers, extractor);
+		if (extract == current) {
 			return null;
 		}
-		return this.tracer.nextSpan(extracted);
+		try (Scope scope = ContextUtils.withScopedContext(extract)) {
+			return this.tracer.getCurrentSpan();
+		}
 	}
 
-	private void addTags(SpanCustomizer result, String destinationName) {
+	private void addTags(Span result, String destinationName) {
 		if (StringUtils.hasText(destinationName)) {
-			result.tag("channel", SpanNameUtil.shorten(destinationName));
+			result.setAttribute("channel", SpanNameUtil.shorten(destinationName));
 		}
 	}
 
@@ -197,13 +202,13 @@ class TraceMessageHandler {
 	 * @param destinationName - destination to which the message should be sent
 	 * @return a tuple with the wrapped message and a corresponding span
 	 */
-	MessageAndSpan wrapOutputMessage(Message<?> message, TraceContextOrSamplingFlags parentSpan,
+	MessageAndSpan wrapOutputMessage(Message<?> message, SpanContext parentSpan,
 			String destinationName) {
 		Message<?> retrievedMessage = getMessage(message);
 		MessageHeaderAccessor headers = mutableHeaderAccessor(retrievedMessage);
-		Span span = this.outputMessageSpanFunction.apply(parentSpan.context());
+		Span span = this.outputMessageSpanFunction.apply(parentSpan);
 		clearTracingHeaders(headers);
-		this.injector.inject(span.context(), headers);
+		OpenTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), headers, this.injector);
 		markProducerSpan(headers, span, destinationName);
 		if (log.isDebugEnabled()) {
 			log.debug("Created a new span output message " + span);
@@ -212,9 +217,10 @@ class TraceMessageHandler {
 	}
 
 	private void markProducerSpan(MessageHeaderAccessor headers, Span span, String destinationName) {
-		if (!span.isNoop()) {
-			span.kind(Span.Kind.PRODUCER).name("send").start();
-			span.remoteServiceName(toRemoteServiceName(headers));
+		if (!span.isRecording()) {
+			// TODO: How to do this on a continued span?
+//			span.kind(Span.Kind.PRODUCER).name("send").start();
+//			span.remoteServiceName(toRemoteServiceName(headers));
 			addTags(span, destinationName);
 		}
 	}
@@ -237,8 +243,9 @@ class TraceMessageHandler {
 		clearTechnicalTracingHeaders(headers);
 		if (originalMessage instanceof ErrorMessage) {
 			ErrorMessage errorMessage = (ErrorMessage) originalMessage;
-			headers.copyHeaders(MessageHeaderPropagation.propagationHeaders(additionalHeaders.getMessageHeaders(),
-					this.tracing.propagation().keys()));
+			// TODO: How to get keys?
+//			headers.copyHeaders(MessageHeaderPropagation.propagationHeaders(additionalHeaders.getMessageHeaders(),
+//					this.tracing.propagation().keys()));
 			return new ErrorMessage(errorMessage.getPayload(), isWebSockets(headers) ? headers.getMessageHeaders()
 					: new MessageHeaders(headers.getMessageHeaders()), errorMessage.getOriginalMessage());
 		}
@@ -269,7 +276,9 @@ class TraceMessageHandler {
 	}
 
 	private void clearTracingHeaders(MessageHeaderAccessor headers) {
-		List<String> keysToRemove = new ArrayList<>(this.tracing.propagation().keys());
+		// TODO: How to get keys?
+		// List<String> keysToRemove = new ArrayList<>(this.tracing.propagation().keys());
+		List<String> keysToRemove = new ArrayList<>();
 		keysToRemove.add(Span.class.getName());
 		keysToRemove.add("traceHandlerParentSpan");
 		MessageHeaderPropagation.removeAnyTraceHeaders(headers, keysToRemove);
@@ -281,7 +290,7 @@ class TraceMessageHandler {
 	}
 
 	private void finishSpan(Span span, Throwable error) {
-		if (span == null || span.isNoop()) {
+		if (span == null || span.isRecording()) {
 			return;
 		}
 		if (error != null) { // an error occurred, adding error to span
@@ -289,9 +298,9 @@ class TraceMessageHandler {
 			if (message == null) {
 				message = error.getClass().getSimpleName();
 			}
-			span.tag("error", message);
+			span.setAttribute("error", message);
 		}
-		span.finish();
+		span.end();
 	}
 
 }

@@ -18,8 +18,9 @@ package org.springframework.cloud.sleuth.instrument.async;
 
 import java.lang.reflect.Method;
 
-import brave.Span;
-import brave.Tracer;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.trace.Span;
+import io.opentelemetry.trace.Tracer;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -56,18 +57,19 @@ class TraceAsyncAspect {
 	@Around("execution (@org.springframework.scheduling.annotation.Async  * *.*(..))")
 	public Object traceBackgroundThread(final ProceedingJoinPoint pjp) throws Throwable {
 		String spanName = name(pjp);
-		Span span = this.tracer.currentSpan();
+		Span span = this.tracer.getCurrentSpan();
 		if (span == null) {
-			span = this.tracer.nextSpan();
+			span = this.tracer.spanBuilder(spanName).startSpan();
+		} else {
+			span.updateName(spanName);
 		}
-		span = span.name(spanName);
-		try (Tracer.SpanInScope ws = this.tracer.withSpanInScope(span.start())) {
-			span.tag(CLASS_KEY, pjp.getTarget().getClass().getSimpleName());
-			span.tag(METHOD_KEY, pjp.getSignature().getName());
+		try (Scope ws = this.tracer.withSpan(span)) {
+			span.setAttribute(CLASS_KEY, pjp.getTarget().getClass().getSimpleName());
+			span.setAttribute(METHOD_KEY, pjp.getSignature().getName());
 			return pjp.proceed();
 		}
 		finally {
-			span.finish();
+			span.end();
 		}
 	}
 

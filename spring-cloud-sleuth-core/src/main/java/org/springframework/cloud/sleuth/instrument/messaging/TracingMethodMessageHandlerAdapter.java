@@ -26,6 +26,7 @@ import brave.messaging.MessagingTracing;
 import brave.propagation.Propagation.Getter;
 import brave.propagation.TraceContext.Extractor;
 import brave.propagation.TraceContextOrSamplingFlags;
+import io.opentelemetry.context.propagation.TextMapPropagator;
 
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHandler;
@@ -52,10 +53,10 @@ class TracingMethodMessageHandlerAdapter {
 
 	private final Extractor<MessageConsumerRequest> extractor;
 
-	private final Getter<MessageHeaderAccessor, String> getter;
+	private final TextMapPropagator.Getter<MessageHeaderAccessor> getter;
 
 	TracingMethodMessageHandlerAdapter(MessagingTracing messagingTracing,
-			Getter<MessageHeaderAccessor, String> getter) {
+			TextMapPropagator.Getter<MessageHeaderAccessor> getter) {
 		this.tracing = messagingTracing.tracing();
 		this.tracer = tracing.tracer();
 		this.extractor = tracing.propagation().extractor(MessageConsumerRequest.GETTER);
@@ -70,7 +71,7 @@ class TracingMethodMessageHandlerAdapter {
 		Span consumerSpan = tracer.nextSpan(extracted);
 		Span listenerSpan = tracer.newChild(consumerSpan.context());
 
-		if (!consumerSpan.isNoop()) {
+		if (!consumerSpan.isRecording()) {
 			consumerSpan.name("next-message").kind(CONSUMER);
 			if (messageSpanTagger != null) {
 				messageSpanTagger.accept(consumerSpan, message);
@@ -86,7 +87,7 @@ class TracingMethodMessageHandlerAdapter {
 			listenerSpan.name("on-message").start(consumerFinish);
 		}
 
-		try (Tracer.SpanInScope ws = tracer.withSpanInScope(listenerSpan)) {
+		try (Scope ws = tracer.withSpan(listenerSpan)) {
 			messageHandler.handleMessage(message);
 		}
 		catch (Throwable t) {
@@ -94,7 +95,7 @@ class TracingMethodMessageHandlerAdapter {
 			throw t;
 		}
 		finally {
-			listenerSpan.finish();
+			listenerSpan.end();
 		}
 	}
 
@@ -114,7 +115,7 @@ final class MessageConsumerRequest extends ConsumerRequest {
 
 	static final String LOGICAL_RESOURCE_ID = "LogicalResourceId";
 
-	static final Getter<MessageConsumerRequest, String> GETTER = new Getter<MessageConsumerRequest, String>() {
+	static final TextMapPropagator.Getter<MessageConsumerRequest> GETTER = new TextMapPropagator.Getter<MessageConsumerRequest>() {
 		@Override
 		public String get(MessageConsumerRequest request, String name) {
 			return request.getHeader(name);
@@ -130,9 +131,9 @@ final class MessageConsumerRequest extends ConsumerRequest {
 
 	final MessageHeaderAccessor mutableHeaders;
 
-	final Getter<MessageHeaderAccessor, String> getter;
+	final TextMapPropagator.Getter<MessageHeaderAccessor> getter;
 
-	MessageConsumerRequest(Message delegate, Getter<MessageHeaderAccessor, String> getter) {
+	MessageConsumerRequest(Message delegate, TextMapPropagator.Getter<MessageHeaderAccessor> getter) {
 		this.delegate = delegate;
 		this.mutableHeaders = MessageHeaderAccessor.getMutableAccessor(delegate);
 		this.getter = getter;

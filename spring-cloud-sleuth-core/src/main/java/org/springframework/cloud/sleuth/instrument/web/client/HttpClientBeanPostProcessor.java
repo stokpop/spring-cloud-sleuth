@@ -110,7 +110,7 @@ class HttpClientBeanPostProcessor implements BeanPostProcessor {
 				Span span = pendingSpan.getAndSet(null);
 				if (span != null) {
 					span.error(CANCELLED_ERROR);
-					span.finish();
+					span.end();
 				}
 			});
 		}
@@ -160,7 +160,7 @@ class HttpClientBeanPostProcessor implements BeanPostProcessor {
 		}
 
 		static void parseConnectionAddress(Connection connection, Span span) {
-			if (span.isNoop()) {
+			if (span.isRecording()) {
 				return;
 			}
 			SocketAddress socketAddress = connection.address();

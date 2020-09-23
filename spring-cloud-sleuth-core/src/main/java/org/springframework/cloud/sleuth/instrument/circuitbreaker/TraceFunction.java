@@ -19,8 +19,9 @@ package org.springframework.cloud.sleuth.instrument.circuitbreaker;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
-import brave.Span;
-import brave.Tracer;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.trace.Span;
+import io.opentelemetry.trace.Tracer;
 
 /**
  * Trace representation of a {@link Function}.
@@ -34,20 +35,21 @@ class TraceFunction<T> implements Function<Throwable, T> {
 
 	private final Function<Throwable, T> delegate;
 
-	private final AtomicReference<Span> span;
+	private final AtomicReference<Span.Builder> span;
 
 	TraceFunction(Tracer tracer, Function<Throwable, T> delegate) {
 		this.tracer = tracer;
 		this.delegate = delegate;
-		this.span = new AtomicReference<>(this.tracer.nextSpan());
+		this.span = new AtomicReference<>(this.tracer.spanBuilder(""));
 	}
 
 	@Override
 	public T apply(Throwable throwable) {
 		String name = this.delegate.getClass().getSimpleName();
-		Span span = this.span.get().name(name);
+		Span span = this.span.get().startSpan();
+		span.updateName(name);
 		Throwable tr = null;
-		try (Tracer.SpanInScope ws = this.tracer.withSpanInScope(span.start())) {
+		try (Scope ws = this.tracer.withSpan(span)) {
 			return this.delegate.apply(throwable);
 		}
 		catch (Throwable t) {
@@ -56,10 +58,9 @@ class TraceFunction<T> implements Function<Throwable, T> {
 		}
 		finally {
 			if (tr != null) {
-				String message = tr.getMessage() == null ? tr.getClass().getSimpleName() : tr.getMessage();
-				span.tag("error", message);
+				span.recordException(tr);
 			}
-			span.finish();
+			span.end();
 			this.span.set(null);
 		}
 	}

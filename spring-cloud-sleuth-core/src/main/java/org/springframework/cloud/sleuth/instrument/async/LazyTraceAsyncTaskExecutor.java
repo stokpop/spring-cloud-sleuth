@@ -19,7 +19,7 @@ package org.springframework.cloud.sleuth.instrument.async;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 
-import brave.Tracing;
+import io.opentelemetry.trace.Tracer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -47,7 +47,7 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 
 	private final String beanName;
 
-	private Tracing tracing;
+	private Tracer tracer;
 
 	private SpanNamer spanNamer;
 
@@ -67,7 +67,7 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 	public void execute(Runnable task) {
 		Runnable taskToRun = task;
 		if (!ContextUtil.isContextUnusable(this.beanFactory)) {
-			taskToRun = new TraceRunnable(tracing(), spanNamer(), task, this.beanName);
+			taskToRun = new TraceRunnable(tracer(), spanNamer(), task, this.beanName);
 		}
 		this.delegate.execute(taskToRun);
 	}
@@ -76,7 +76,7 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 	public void execute(Runnable task, long startTimeout) {
 		Runnable taskToRun = task;
 		if (!ContextUtil.isContextUnusable(this.beanFactory)) {
-			taskToRun = new TraceRunnable(tracing(), spanNamer(), task, this.beanName);
+			taskToRun = new TraceRunnable(tracer(), spanNamer(), task, this.beanName);
 		}
 		this.delegate.execute(taskToRun, startTimeout);
 	}
@@ -85,7 +85,7 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 	public Future<?> submit(Runnable task) {
 		Runnable taskToRun = task;
 		if (!ContextUtil.isContextUnusable(this.beanFactory)) {
-			taskToRun = new TraceRunnable(tracing(), spanNamer(), task, this.beanName);
+			taskToRun = new TraceRunnable(tracer(), spanNamer(), task, this.beanName);
 		}
 		return this.delegate.submit(taskToRun);
 	}
@@ -94,7 +94,7 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 	public <T> Future<T> submit(Callable<T> task) {
 		Callable<T> taskToRun = task;
 		if (!ContextUtil.isContextUnusable(this.beanFactory)) {
-			taskToRun = new TraceCallable<>(tracing(), spanNamer(), task, this.beanName);
+			taskToRun = new TraceCallable<>(tracer(), spanNamer(), task, this.beanName);
 		}
 		return this.delegate.submit(taskToRun);
 	}
@@ -113,16 +113,16 @@ public class LazyTraceAsyncTaskExecutor implements AsyncTaskExecutor {
 		return this.spanNamer;
 	}
 
-	private Tracing tracing() {
-		if (this.tracing == null) {
+	private Tracer tracer() {
+		if (this.tracer == null) {
 			try {
-				this.tracing = this.beanFactory.getBean(Tracing.class);
+				this.tracer = this.beanFactory.getBean(Tracer.class);
 			}
 			catch (NoSuchBeanDefinitionException e) {
 				return null;
 			}
 		}
-		return this.tracing;
+		return this.tracer;
 	}
 
 }
